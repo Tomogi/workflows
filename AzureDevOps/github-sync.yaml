@@ -1,0 +1,53 @@
+# Azure DevOps pipeline to sync changes from Azure Repos to GitHub
+# This pipeline is triggered on PR and push events to any branch except main
+# It determines the target environment (dev/non-prod) and calls the corresponding GitHub webhook
+# to trigger a sync of the code changes
+
+
+pr:
+  branches:
+    include:
+      - '*'
+    exclude:
+      - 'main'
+trigger:
+  branches:
+    include:
+      - '*'
+    exclude:
+      - 'main'
+
+variables:
+- group: variable_group 
+
+stages:
+  - stage: TriggerSync
+    jobs:
+      - job: DetermineEnvironment
+        steps:
+        - script: |
+            if [[ "$(Build.SourceBranchName)" == "branchName" ]]; then # branchName is the name of the branch that is being pushed to
+              echo "##vso[task.setvariable variable=syncEndpoint;isOutput=true]$(SYNC_ENDPOINT_DEV)"
+              echo "##vso[task.setvariable variable=syncPAT;isOutput=true]$(SYNC_PAT_DEV)"
+            fi
+          displayName: 'Set Environment Variable'
+          name: switchVariablesJob
+
+      - job: CallApi
+        dependsOn: DetermineEnvironment
+        variables:
+          syncEndpointVar: $[ dependencies.DetermineEnvironment.outputs['switchVariablesJob.syncEndpoint'] ]
+          syncPatVar: $[ dependencies.DetermineEnvironment.outputs['switchVariablesJob.syncPat'] ]
+        steps:
+          - script: |
+              curl -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: token $(syncPatVar)" \
+              -d '{"event_type":"azure-devops-push"}' \
+              $(syncEndpointVar)
+            displayName: 'Invoke Github REST API'
+
+      - job: NotifyResult
+        dependsOn: CallApi
+        steps:
+          - bash: echo 'Work done'
